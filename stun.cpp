@@ -13,12 +13,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <unistd.h>
-#include <ctime>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <arpa/inet.h>
 #include <netdb.h>
 #include <stdexcept>
+//To make this build for router...
+#include "sys/time.h"
 
 // MARK: === PRIVATE DATA STRUCTURE ===
 
@@ -190,7 +190,6 @@ struct STUNResults getSTUNResults(struct STUNServer server, unsigned short port)
 
         throw std::runtime_error("Could not send STUN request.");
     }
-    
     // Set the timeout
     struct timeval tv = {5, 0};
     
@@ -244,7 +243,7 @@ struct STUNResults getSTUNResults(struct STUNServer server, unsigned short port)
                 auto* xorAddress = (struct STUNXORMappedIPv4Address*) pointer;
                 
                 unsigned int numAddress = htonl(xorAddress->address)^0x2112A442;
-                unsigned short port = htons(xorAddress->port)^0x2112;
+                unsigned short parsedPort = htons(xorAddress->port) ^ 0x2112;
                 char *strAddress = (char *)malloc(20);
                 // Parse the IP address, and save it in strAddress
                 snprintf(strAddress, 20, "%d.%d.%d.%d",
@@ -254,7 +253,7 @@ struct STUNResults getSTUNResults(struct STUNServer server, unsigned short port)
                          numAddress & 0xFF);
                 STUNResults stunResults = {
                         strAddress,
-                        port
+                        parsedPort
                 };
                 free(localAddress);
                 free(hints);
