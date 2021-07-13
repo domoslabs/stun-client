@@ -2,7 +2,7 @@
 #include <getopt.h>
 #include "stun.h"
 void show_help(char* progname){
-    std::cout << "\nSTUN Client implementation adapted from https://github.com/0xFireWolf/STUNExternalIP, by Vladimir Monakhov. \n" << std::endl;
+    std::cout << "\nSTUN Client implementation adapted from https://github.com/0xFireWolf/STUNExternalIP, by Domos. \n" << std::endl;
     std::cout << "Usage: " << progname << " <stun_server_ip> <stun_server_port> <port> [--help]"<< std::endl;
     std::cout << "stun_server_ip                  The address of the STUN server." << std::endl;
     std::cout << "stun_server_port                The port of the STUN server." << std::endl;
