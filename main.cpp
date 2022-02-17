@@ -9,7 +9,16 @@
 std::string stun_server_ip;
 unsigned short stun_server_port;
 unsigned short port;
+struct STUNResult {
+    char ext_address[NI_MAXHOST];
+    char ext_port[NI_MAXSERV];
 
+    char changed_address[NI_MAXHOST];
+    char changed_port[NI_MAXSERV];
+
+    char source_address[NI_MAXHOST];
+    char source_port[NI_MAXSERV];
+};
 int send_stun_msg(stun::message msg){
     // Create a UDP socket
     int socketd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -76,7 +85,8 @@ int send_stun_msg(stun::message msg){
 
     return socketd;
 }
-void recv_stun_msg(int socketd, char* hoststr, char* portstr){
+STUNResult recv_stun_msg(int socketd){
+    STUNResult res{};
     stun::message rmsg;
 
     // Allocate a 2k memory block
@@ -84,7 +94,7 @@ void recv_stun_msg(int socketd, char* hoststr, char* portstr){
 
     // Receive network data directly into your STUN message block
     // Set the timeout
-    struct timeval tv = {5, 0};
+    struct timeval tv = {10, 0};
 
     setsockopt(socketd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval));
 
@@ -104,20 +114,33 @@ void recv_stun_msg(int socketd, char* hoststr, char* portstr){
     }
     // Iterate over the message attributes
     using namespace stun::attribute;
-    for (stun::message::iterator i = rmsg.begin(), ie = rmsg.end(); i != ie; i++) {
+    for (auto & i : rmsg) {
+        sockaddr_storage address{};
         // First, check the attribute type
-        switch (i->type()) {
+        switch (i.type()) {
+            case 0x8020:
             case type::xor_mapped_address:
-                sockaddr_storage address;
-                i->to<type::xor_mapped_address>().to_sockaddr((sockaddr*)&address);
-
-
+                i.to<type::xor_mapped_address>().to_sockaddr((sockaddr*)&address);
                 getnameinfo((struct sockaddr *)&address,
-                            sizeof(address), hoststr, NI_MAXHOST, portstr, NI_MAXSERV,
+                            sizeof(address), res.ext_address, NI_MAXHOST, res.ext_port, NI_MAXSERV,
+                            NI_NUMERICHOST | NI_NUMERICSERV);
+                break;
+            case type::changed_address:
+            case type::other_address:
+                i.to<type::changed_address>().to_sockaddr((sockaddr*)&address);
+                getnameinfo((struct sockaddr *)&address,
+                            sizeof(address), res.changed_address, NI_MAXHOST, res.changed_port, NI_MAXSERV,
+                            NI_NUMERICHOST | NI_NUMERICSERV);
+                break;
+            case type::source_address:
+                i.to<type::source_address>().to_sockaddr((sockaddr*)&address);
+                getnameinfo((struct sockaddr *)&address,
+                            sizeof(address), res.source_address, NI_MAXHOST, res.source_port, NI_MAXSERV,
                             NI_NUMERICHOST | NI_NUMERICSERV);
                 break;
         }
     }
+    return res;
 }
 
 int main(int argc, char **argv) {
@@ -138,21 +161,19 @@ int main(int argc, char **argv) {
         identifier[index] = rand();
     }
     stun::message msg(stun::message::binding_request,identifier );
-    int a = 2;
-    int b = 4;
-    msg << stun::attribute::change_request(a|b);
 
-    char hoststr[NI_MAXHOST];
-    char portstr[NI_MAXSERV];
+
     int socketd = send_stun_msg(msg);
-    recv_stun_msg(socketd, hoststr, portstr);
-
+    auto res = recv_stun_msg(socketd);
 
     Json::StreamWriterBuilder builder;
     Json::Value root;
-    root["ip"] = hoststr;
-    root["port"] = portstr;
-    //STUNResults results = getSTUNResults(server, port, msg);
+    root["ext_ip"] = res.ext_address;
+    root["ext_port"] = res.ext_port;
+    root["changed_address"] = res.changed_address;
+    root["changed_port"] = res.changed_port;
+    root["source_address"] = res.source_address;
+    root["source_port"] = res.source_port;
     std::cout << Json::writeString(builder, root) << std::endl;
 
 }
