@@ -1,0 +1,3 @@
+[submodule "third-party/stun-msg"]
+	path = third-party/stun-msg
+	url = git@github.com:balena/stun-msg.git
