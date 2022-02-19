@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include "CLI11.hpp"
+#include "third-party/CLI11.hpp"
 #include "stun++/message.h"
 #include <json/json.h>
 std::string stun_server_ip;
