@@ -7,8 +7,10 @@
 #include "stun++/message.h"
 #include <json/json.h>
 std::string stun_server_ip;
-unsigned short stun_server_port;
-unsigned short port;
+std::string  stun_server_port;
+std::string  port;
+const char *local_ip = "0.0.0.0";
+const char *local_port = "54320";
 struct STUNResult {
     char ext_address[NI_MAXHOST];
     char ext_port[NI_MAXSERV];
@@ -19,7 +21,7 @@ struct STUNResult {
     char source_address[NI_MAXHOST];
     char source_port[NI_MAXSERV];
 };
-int send_stun_msg(stun::message msg){
+int send_stun_msg(stun::message msg, const char* server_address, const char* server_port){
     // Create a UDP socket
     int socketd = socket(AF_INET, SOCK_DGRAM, 0);
 
@@ -28,7 +30,7 @@ int send_stun_msg(stun::message msg){
     bzero(localAddress, sizeof(struct sockaddr_in));
     localAddress->sin_family = AF_INET;
     localAddress->sin_addr.s_addr = INADDR_ANY;
-    localAddress->sin_port = htons(port);
+    localAddress->sin_port = htons(std::stoul(port));
 
     if (bind(socketd, (struct sockaddr*) localAddress, sizeof(struct sockaddr_in)) < 0)
     {
@@ -46,7 +48,7 @@ int send_stun_msg(stun::message msg){
     hints->ai_family = AF_INET;
     hints->ai_socktype = SOCK_STREAM;
 
-    if (getaddrinfo(stun_server_ip.c_str(), nullptr, hints, &results) != 0)
+    if (getaddrinfo(server_address, nullptr, hints, &results) != 0)
     {
         free(localAddress);
         free(hints);
@@ -74,7 +76,7 @@ int send_stun_msg(stun::message msg){
 
     remoteAddress->sin_family = AF_INET;
     remoteAddress->sin_addr = stunaddr;
-    remoteAddress->sin_port = htons(stun_server_port);
+    remoteAddress->sin_port = htons(std::stoul(server_port));
 
     // Send the request
     if (sendto(socketd, msg.data(), msg.size(), 0, (struct sockaddr*) remoteAddress, sizeof(struct sockaddr_in)) == -1)
@@ -142,7 +144,46 @@ STUNResult recv_stun_msg(int socketd){
     }
     return res;
 }
-
+STUNResult stun_test1(const char* server_address, const char* server_port){
+    unsigned char identifier[16];
+    for (int index = 0; index < 16; index++)
+    {
+        srand((unsigned int) time(0));
+        identifier[index] = rand();
+    }
+    stun::message msg(stun::message::binding_request,identifier );
+    int socketd = send_stun_msg(msg, server_address, server_port);
+    auto res = recv_stun_msg(socketd);
+    return res;
+}
+STUNResult stun_test2(const char* server_address, const char* server_port){
+    unsigned char identifier[16];
+    for (int index = 0; index < 16; index++)
+    {
+        srand((unsigned int) time(0));
+        identifier[index] = rand();
+    }
+    stun::message msg(stun::message::binding_request,identifier );
+    // Request change IP (4) and new Port (2)
+    msg << stun::attribute::change_request(2|4);
+    int socketd = send_stun_msg(msg, server_address, server_port);
+    auto res = recv_stun_msg(socketd);
+    return res;
+}
+STUNResult stun_test3(const char* server_address, const char* server_port){
+    unsigned char identifier[16];
+    for (int index = 0; index < 16; index++)
+    {
+        srand((unsigned int) time(0));
+        identifier[index] = rand();
+    }
+    stun::message msg(stun::message::binding_request,identifier );
+    // Request change Port (2)
+    msg << stun::attribute::change_request(2);
+    int socketd = send_stun_msg(msg, server_address, server_port);
+    auto res = recv_stun_msg(socketd);
+    return res;
+}
 int main(int argc, char **argv) {
     CLI::App app{"STUN Client implementation adapted from https://github.com/0xFireWolf/STUNExternalIP, by Domos."};
     app.add_option("stun_server_ip", stun_server_ip, "The address of the STUN server.")->required();
@@ -153,27 +194,44 @@ int main(int argc, char **argv) {
     } catch (const CLI::ParseError &e) {
         return app.exit(e);
     }
-
-    unsigned char identifier[16];
-    for (int index = 0; index < 16; index++)
-    {
-        srand((unsigned int) time(0));
-        identifier[index] = rand();
-    }
-    stun::message msg(stun::message::binding_request,identifier );
-
-
-    int socketd = send_stun_msg(msg);
-    auto res = recv_stun_msg(socketd);
-
-    Json::StreamWriterBuilder builder;
     Json::Value root;
-    root["ext_ip"] = res.ext_address;
-    root["ext_port"] = res.ext_port;
-    root["changed_address"] = res.changed_address;
-    root["changed_port"] = res.changed_port;
-    root["source_address"] = res.source_address;
-    root["source_port"] = res.source_port;
-    std::cout << Json::writeString(builder, root) << std::endl;
 
+    auto res1 = stun_test1(stun_server_ip.c_str(), stun_server_port.c_str());
+    if(strlen(res1.ext_address) == 0){
+        root["nat_type"] = "blocked";
+    }
+    if(strcmp(res1.ext_address, local_ip) == strcmp(res1.ext_port, local_port) == 0){
+        auto res2 = stun_test2(stun_server_ip.c_str(), stun_server_port.c_str());
+        // Check if response
+        if(strlen(res2.ext_address) == 0){
+            // Symmetric UDP
+            root["nat_type"] = "symmetric";
+        } else {
+            // Open Internet
+            root["nat_type"] = "open";
+        }
+    } else {
+        auto res2 = stun_test2(stun_server_ip.c_str(), stun_server_port.c_str());
+        // Check if response
+        if(strlen(res2.ext_address) == 0){
+            // Symmetric UDP
+            root["nat_type"] = "full_cone";
+        } else {
+            auto res1_changed = stun_test1(res1.changed_address, res1.changed_port);
+            if(strcmp(res1_changed.ext_address, res1.ext_address) == strcmp(res1_changed.ext_port, res1.ext_port) == 0){
+                auto res3 = stun_test3(res1.changed_address, res1.changed_port);
+                if(strlen(res3.ext_address) == 0){
+                    root["nat_type"]="restricted_port";
+                } else {
+                    root["nat_type"]="restricted_cone";
+                }
+            } else {
+                root["nat_type"]="symmetric";
+            }
+        }
+    }
+    Json::StreamWriterBuilder builder;
+    root["ext_ip"] = res1.ext_address;
+    root["ext_port"] = res1.ext_port;
+    std::cout << Json::writeString(builder, root) << std::endl;
 }

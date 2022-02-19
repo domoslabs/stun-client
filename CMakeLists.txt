@@ -15,16 +15,8 @@ else (${jsoncpp_FOUND})
 endif (${jsoncpp_FOUND})
 
 
-ExternalProject_Add(
-        stun_msg
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/stun-msg
-        PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/third-party/stun-msg
-        INSTALL_COMMAND ""
-        BUILD_IN_SOURCE 1
-)
+add_subdirectory(third-party/stun-msg)
 add_executable(stun main.cpp)
-
-add_dependencies(stun stun_msg)
 target_include_directories(
         stun
         PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third-party/stun-msg/include
@@ -32,6 +24,6 @@ target_include_directories(
 )
 target_link_libraries(
         stun PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/third-party/stun-msg/libstunmsg.a
+        stunmsg
         ${JSONCPP_LIBRARIES}
 )
