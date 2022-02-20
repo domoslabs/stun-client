@@ -1,13 +1,16 @@
+
 #include <iostream>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include "third-party/CLI11.hpp"
-#include "stun++/message.h"
 #include <json/json.h>
 #include <arpa/inet.h>
-
+#include <sys/time.h>
+#include <string>
+#include <json/value.h>
+#include "CLI11.hpp"
+#include "stun++/message.h"
 std::string stun_server_ip;
 std::string  stun_server_port;
 std::string  port;
@@ -23,7 +26,7 @@ struct STUNResult {
     char source_address[NI_MAXHOST];
     char source_port[NI_MAXSERV];
 };
-int bind_socket(){
+int bind_socket(const char* port){
     // Create a UDP socket
     int socketd = socket(AF_INET, SOCK_DGRAM, 0);
 
@@ -41,6 +44,17 @@ int bind_socket(){
         throw std::runtime_error("Could not bind socket.");
     }
     return socketd;
+}
+unsigned char* get_identifier(){
+    static unsigned char identifier[16];
+    for (unsigned char & index : identifier)
+    {
+        struct timeval t{};
+        gettimeofday(&t, nullptr);
+        srand((unsigned int) t.tv_usec);
+        index = rand();
+    }
+    return identifier;
 }
 void send_stun_msg(stun::message msg, const char* server_address, const char* server_port, int socketd){
 
@@ -105,7 +119,7 @@ STUNResult recv_stun_msg(int socketd){
     // Receive network data directly into your STUN message block
 
     // Set the timeout
-    struct timeval tv = {10, 0};
+    struct timeval tv = {1, 0};
     setsockopt(socketd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval));
     // Read the response
     char* buffer = (char *)malloc(sizeof(char) * 512);
@@ -152,45 +166,47 @@ STUNResult recv_stun_msg(int socketd){
     return res;
 }
 STUNResult stun_test1(const char* server_address, const char* server_port, int socketd){
-    unsigned char identifier[16];
-    for (int index = 0; index < 16; index++)
-    {
-        srand((unsigned int) time(0));
-        identifier[index] = rand();
+
+    stun::message msg(stun::message::binding_request, get_identifier() );
+    STUNResult res{};
+    for(int i = 0; i < 3; i++){
+        send_stun_msg(msg, server_address, server_port, socketd);
+        res = recv_stun_msg(socketd);
+        if(strlen(res.ext_address) != 0){
+            break;
+        }
     }
-    stun::message msg(stun::message::binding_request,identifier );
-    send_stun_msg(msg, server_address, server_port, socketd);
-    auto res = recv_stun_msg(socketd);
     return res;
 }
 STUNResult stun_test2(const char* server_address, const char* server_port, int socketd){
-    unsigned char identifier[16];
-    for (int index = 0; index < 16; index++)
-    {
-        srand((unsigned int) time(0));
-        identifier[index] = rand();
-    }
-    stun::message msg(stun::message::binding_request,identifier );
+    stun::message msg(stun::message::binding_request,get_identifier() );
     // Request change IP (4) and new Port (2)
-    unsigned int change_data = htonl(0x04|0x02);
+    unsigned int change_data = 0x04|0x02;
     msg << stun::attribute::change_request(change_data);
-    send_stun_msg(msg, server_address, server_port, socketd);
-    auto res = recv_stun_msg(socketd);
+    STUNResult res{};
+    for(int i = 0; i < 3; i++){
+        send_stun_msg(msg, server_address, server_port, socketd);
+        res = recv_stun_msg(socketd);
+        if(strlen(res.ext_address) != 0){
+            break;
+        }
+    }
+
     return res;
 }
 STUNResult stun_test3(const char* server_address, const char* server_port, int socketd){
-    unsigned char identifier[16];
-    for (int index = 0; index < 16; index++)
-    {
-        srand((unsigned int) time(0));
-        identifier[index] = rand();
-    }
-    stun::message msg(stun::message::binding_request,identifier );
+    stun::message msg(stun::message::binding_request,get_identifier() );
     // Request change Port (2)
-    unsigned int change_data = htonl(0x02);
+    unsigned int change_data = 0x02;
     msg << stun::attribute::change_request(change_data);
-    send_stun_msg(msg, server_address, server_port, socketd);
-    auto res = recv_stun_msg(socketd);
+    STUNResult res{};
+    for(int i = 0; i < 3; i++){
+        send_stun_msg(msg, server_address, server_port, socketd);
+        res = recv_stun_msg(socketd);
+        if(strlen(res.ext_address) != 0){
+            break;
+        }
+    }
     return res;
 }
 int main(int argc, char **argv) {
@@ -204,7 +220,7 @@ int main(int argc, char **argv) {
         return app.exit(e);
     }
     Json::Value root;
-    int socketd = bind_socket();
+    int socketd = bind_socket(port.c_str());
     auto res1 = stun_test1(stun_server_ip.c_str(), stun_server_port.c_str(), socketd);
     if(strlen(res1.ext_address) == 0){
         root["nat_type"] = "blocked";
@@ -214,7 +230,7 @@ int main(int argc, char **argv) {
         // Check if response
         if(strlen(res2.ext_address) == 0){
             // Symmetric UDP
-            root["nat_type"] = "symmetric";
+            root["nat_type"] = "firewall";
         } else {
             // Open Internet
             root["nat_type"] = "open";
@@ -222,9 +238,9 @@ int main(int argc, char **argv) {
     } else {
         auto res2 = stun_test2(stun_server_ip.c_str(), stun_server_port.c_str(), socketd);
         // Check if response
-        if(strlen(res2.ext_address) == 0){
-            // Symmetric UDP
+        if(strlen(res2.ext_address) != 0){
             root["nat_type"] = "full_cone";
+        // Some other type of NAT, perform test1 with new IP.
         } else {
             auto res1_changed = stun_test1(res1.changed_address, res1.changed_port, socketd);
             if(strcmp(res1_changed.ext_address, res1.ext_address) == 0 && strcmp(res1_changed.ext_port, res1.ext_port) == 0){

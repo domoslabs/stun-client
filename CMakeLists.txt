@@ -16,9 +16,11 @@ endif (${jsoncpp_FOUND})
 
 
 add_subdirectory(third-party/stun-msg)
-add_executable(stun main.cpp)
+add_executable(stun src/main.cpp)
 target_include_directories(
         stun
+        PRIVATE include
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third-party
         PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third-party/stun-msg/include
         PRIVATE ${JSONCPP_INCLUDE_DIRS}
 )
