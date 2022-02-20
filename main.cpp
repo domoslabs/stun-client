@@ -6,6 +6,8 @@
 #include "third-party/CLI11.hpp"
 #include "stun++/message.h"
 #include <json/json.h>
+#include <arpa/inet.h>
+
 std::string stun_server_ip;
 std::string  stun_server_port;
 std::string  port;
@@ -21,7 +23,7 @@ struct STUNResult {
     char source_address[NI_MAXHOST];
     char source_port[NI_MAXSERV];
 };
-int send_stun_msg(stun::message msg, const char* server_address, const char* server_port){
+int bind_socket(){
     // Create a UDP socket
     int socketd = socket(AF_INET, SOCK_DGRAM, 0);
 
@@ -38,6 +40,10 @@ int send_stun_msg(stun::message msg, const char* server_address, const char* ser
         close(socketd);
         throw std::runtime_error("Could not bind socket.");
     }
+    return socketd;
+}
+void send_stun_msg(stun::message msg, const char* server_address, const char* server_port, int socketd){
+
 
     // Remote Address
     // First resolve the STUN server address
@@ -50,10 +56,7 @@ int send_stun_msg(stun::message msg, const char* server_address, const char* ser
 
     if (getaddrinfo(server_address, nullptr, hints, &results) != 0)
     {
-        free(localAddress);
-        free(hints);
         close(socketd);
-
         throw std::runtime_error("Could not get address info.");
     }
 
@@ -84,8 +87,13 @@ int send_stun_msg(stun::message msg, const char* server_address, const char* ser
         close(socketd);
         throw std::runtime_error("Could not send STUN request.");
     }
-
-    return socketd;
+    struct sockaddr_in localAddress;
+    socklen_t len = sizeof(localAddress);
+    getsockname(socketd, (struct sockaddr *) &localAddress, &len);
+    char ip[16];
+    bzero(&localAddress, sizeof(localAddress));
+    inet_ntop(AF_INET, &localAddress.sin_addr, ip, sizeof(ip));
+    std::cout << ip << std::endl;
 }
 STUNResult recv_stun_msg(int socketd){
     STUNResult res{};
@@ -95,11 +103,10 @@ STUNResult recv_stun_msg(int socketd){
     rmsg.resize(2*1024);
 
     // Receive network data directly into your STUN message block
+
     // Set the timeout
     struct timeval tv = {10, 0};
-
     setsockopt(socketd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval));
-
     // Read the response
     char* buffer = (char *)malloc(sizeof(char) * 512);
 
@@ -144,7 +151,7 @@ STUNResult recv_stun_msg(int socketd){
     }
     return res;
 }
-STUNResult stun_test1(const char* server_address, const char* server_port){
+STUNResult stun_test1(const char* server_address, const char* server_port, int socketd){
     unsigned char identifier[16];
     for (int index = 0; index < 16; index++)
     {
@@ -152,12 +159,11 @@ STUNResult stun_test1(const char* server_address, const char* server_port){
         identifier[index] = rand();
     }
     stun::message msg(stun::message::binding_request,identifier );
-    int socketd = send_stun_msg(msg, server_address, server_port);
+    send_stun_msg(msg, server_address, server_port, socketd);
     auto res = recv_stun_msg(socketd);
-    close(socketd);
     return res;
 }
-STUNResult stun_test2(const char* server_address, const char* server_port){
+STUNResult stun_test2(const char* server_address, const char* server_port, int socketd){
     unsigned char identifier[16];
     for (int index = 0; index < 16; index++)
     {
@@ -166,13 +172,13 @@ STUNResult stun_test2(const char* server_address, const char* server_port){
     }
     stun::message msg(stun::message::binding_request,identifier );
     // Request change IP (4) and new Port (2)
-    msg << stun::attribute::change_request(2|4);
-    int socketd = send_stun_msg(msg, server_address, server_port);
+    unsigned int change_data = htonl(0x04|0x02);
+    msg << stun::attribute::change_request(change_data);
+    send_stun_msg(msg, server_address, server_port, socketd);
     auto res = recv_stun_msg(socketd);
-    close(socketd);
     return res;
 }
-STUNResult stun_test3(const char* server_address, const char* server_port){
+STUNResult stun_test3(const char* server_address, const char* server_port, int socketd){
     unsigned char identifier[16];
     for (int index = 0; index < 16; index++)
     {
@@ -181,10 +187,10 @@ STUNResult stun_test3(const char* server_address, const char* server_port){
     }
     stun::message msg(stun::message::binding_request,identifier );
     // Request change Port (2)
-    msg << stun::attribute::change_request(2);
-    int socketd = send_stun_msg(msg, server_address, server_port);
+    unsigned int change_data = htonl(0x02);
+    msg << stun::attribute::change_request(change_data);
+    send_stun_msg(msg, server_address, server_port, socketd);
     auto res = recv_stun_msg(socketd);
-    close(socketd);
     return res;
 }
 int main(int argc, char **argv) {
@@ -198,13 +204,13 @@ int main(int argc, char **argv) {
         return app.exit(e);
     }
     Json::Value root;
-
-    auto res1 = stun_test1(stun_server_ip.c_str(), stun_server_port.c_str());
+    int socketd = bind_socket();
+    auto res1 = stun_test1(stun_server_ip.c_str(), stun_server_port.c_str(), socketd);
     if(strlen(res1.ext_address) == 0){
         root["nat_type"] = "blocked";
     }
     if(strcmp(res1.ext_address, local_ip) == 0 && strcmp(res1.ext_port, local_port) == 0){
-        auto res2 = stun_test2(stun_server_ip.c_str(), stun_server_port.c_str());
+        auto res2 = stun_test2(stun_server_ip.c_str(), stun_server_port.c_str(), socketd);
         // Check if response
         if(strlen(res2.ext_address) == 0){
             // Symmetric UDP
@@ -214,15 +220,15 @@ int main(int argc, char **argv) {
             root["nat_type"] = "open";
         }
     } else {
-        auto res2 = stun_test2(stun_server_ip.c_str(), stun_server_port.c_str());
+        auto res2 = stun_test2(stun_server_ip.c_str(), stun_server_port.c_str(), socketd);
         // Check if response
         if(strlen(res2.ext_address) == 0){
             // Symmetric UDP
             root["nat_type"] = "full_cone";
         } else {
-            auto res1_changed = stun_test1(res1.changed_address, res1.changed_port);
+            auto res1_changed = stun_test1(res1.changed_address, res1.changed_port, socketd);
             if(strcmp(res1_changed.ext_address, res1.ext_address) == 0 && strcmp(res1_changed.ext_port, res1.ext_port) == 0){
-                auto res3 = stun_test3(res1.changed_address, res1.changed_port);
+                auto res3 = stun_test3(res1.changed_address, res1.changed_port, socketd);
                 if(strlen(res3.ext_address) == 0){
                     root["nat_type"]="restricted_port";
                 } else {
