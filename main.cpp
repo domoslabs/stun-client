@@ -9,8 +9,8 @@
 std::string stun_server_ip;
 std::string  stun_server_port;
 std::string  port;
-const char *local_ip = "0.0.0.0";
-const char *local_port = "54320";
+const char local_ip[NI_MAXHOST] = "0.0.0.0";
+const char local_port[NI_MAXSERV] = "54320";
 struct STUNResult {
     char ext_address[NI_MAXHOST];
     char ext_port[NI_MAXSERV];
@@ -107,7 +107,7 @@ STUNResult recv_stun_msg(int socketd){
 
     long length = read(socketd, rmsg.data(), rmsg.capacity());
     if(length < 0){
-        throw std::runtime_error("Timed out.");
+        return res;
     }
     // Reduce the size to the packet size
     rmsg.resize(length);
@@ -154,6 +154,7 @@ STUNResult stun_test1(const char* server_address, const char* server_port){
     stun::message msg(stun::message::binding_request,identifier );
     int socketd = send_stun_msg(msg, server_address, server_port);
     auto res = recv_stun_msg(socketd);
+    close(socketd);
     return res;
 }
 STUNResult stun_test2(const char* server_address, const char* server_port){
@@ -168,6 +169,7 @@ STUNResult stun_test2(const char* server_address, const char* server_port){
     msg << stun::attribute::change_request(2|4);
     int socketd = send_stun_msg(msg, server_address, server_port);
     auto res = recv_stun_msg(socketd);
+    close(socketd);
     return res;
 }
 STUNResult stun_test3(const char* server_address, const char* server_port){
@@ -182,6 +184,7 @@ STUNResult stun_test3(const char* server_address, const char* server_port){
     msg << stun::attribute::change_request(2);
     int socketd = send_stun_msg(msg, server_address, server_port);
     auto res = recv_stun_msg(socketd);
+    close(socketd);
     return res;
 }
 int main(int argc, char **argv) {
@@ -200,7 +203,7 @@ int main(int argc, char **argv) {
     if(strlen(res1.ext_address) == 0){
         root["nat_type"] = "blocked";
     }
-    if(strcmp(res1.ext_address, local_ip) == strcmp(res1.ext_port, local_port) == 0){
+    if(strcmp(res1.ext_address, local_ip) == 0 && strcmp(res1.ext_port, local_port) == 0){
         auto res2 = stun_test2(stun_server_ip.c_str(), stun_server_port.c_str());
         // Check if response
         if(strlen(res2.ext_address) == 0){
@@ -218,7 +221,7 @@ int main(int argc, char **argv) {
             root["nat_type"] = "full_cone";
         } else {
             auto res1_changed = stun_test1(res1.changed_address, res1.changed_port);
-            if(strcmp(res1_changed.ext_address, res1.ext_address) == strcmp(res1_changed.ext_port, res1.ext_port) == 0){
+            if(strcmp(res1_changed.ext_address, res1.ext_address) == 0 && strcmp(res1_changed.ext_port, res1.ext_port) == 0){
                 auto res3 = stun_test3(res1.changed_address, res1.changed_port);
                 if(strlen(res3.ext_address) == 0){
                     root["nat_type"]="restricted_port";
