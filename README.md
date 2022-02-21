@@ -1,16 +1,25 @@
 # STUN Client
-Translates NAT and punches through a UDP port.
+Translates NAT and punches through a UDP port. Also determines NAT type.
 ## Example usage
 ```bash
-./stun stun.l.google.com 19302 2000
+./stun 2020
 ```
-Where 19302 is the stun server port, and 2000 is the desired port you want to obtain a translation of. 
+Where 2000 is the desired port you want to obtain a translation of. 
 Example output:
-```bash
-195.159.235.214:62416
+```json
+{
+        "ext_ip" : "84.210.144.140",
+        "ext_port" : "2020",
+        "nat_type" : "symmetric"
+}
 ```
-Which is your public IP, and the translated and open version of UDP port 2000.
+Which is your external IP and port.
 ## Building
+First clone, remember submodules:
+```bash
+git clone --recurse-submodules git@github.com:domoslabs/stun-client.git
+```
+Then build as usual:
 ```bash
 mkdir build
 cd build

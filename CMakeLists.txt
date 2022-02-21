@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0)
-project(stun)
+project(stun-client)
 set(CMAKE_CXX_STANDARD 11)
 #add_compile_options(-Wall -Wextra -Werror)
 include(ExternalProject)
@@ -16,16 +16,17 @@ endif (${jsoncpp_FOUND})
 
 
 add_subdirectory(third-party/stun-msg)
-add_executable(stun src/main.cpp)
+add_executable(stun-client src/main.cpp)
 target_include_directories(
-        stun
+        stun-client
         PRIVATE include
         PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third-party
         PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third-party/stun-msg/include
         PRIVATE ${JSONCPP_INCLUDE_DIRS}
 )
 target_link_libraries(
-        stun PRIVATE
+        stun-client PRIVATE
         stunmsg
         ${JSONCPP_LIBRARIES}
 )
+install(TARGETS stun-client)

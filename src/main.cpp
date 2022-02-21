@@ -14,8 +14,6 @@
 std::string stun_server_ip;
 std::string  stun_server_port;
 std::string  port;
-const char local_ip[NI_MAXHOST] = "0.0.0.0";
-const char local_port[NI_MAXSERV] = "54320";
 struct STUNResult {
     char ext_address[NI_MAXHOST];
     char ext_port[NI_MAXSERV];
@@ -44,6 +42,38 @@ int bind_socket(const char* port){
         throw std::runtime_error("Could not bind socket.");
     }
     return socketd;
+}
+const char* get_local_ip(){
+    const char* google_dns_server = "8.8.8.8";
+    int dns_port = 53;
+    struct sockaddr_in serv{};
+
+    int sock = socket ( AF_INET, SOCK_DGRAM, 0);
+    //Socket could not be created
+    if(sock < 0)
+    {
+        throw std::runtime_error("Socket could not be created.");
+    }
+
+    memset( &serv, 0, sizeof(serv) );
+    serv.sin_family = AF_INET;
+    serv.sin_addr.s_addr = inet_addr( google_dns_server );
+    serv.sin_port = htons( dns_port );
+    if(connect( sock , (const struct sockaddr*) &serv , sizeof(serv) ) < 0){
+        close(sock);
+        throw std::runtime_error("Could not connect to DNS.");
+    }
+    struct sockaddr_in name{};
+    socklen_t namelen = sizeof(name);
+    getsockname(sock, (struct sockaddr*) &name, &namelen);
+    char* buffer = (char *) malloc(sizeof(char)*100);
+    static const char* p = inet_ntop(AF_INET, &name.sin_addr, buffer, 100);
+    if(p != nullptr)
+    {
+        close(sock);
+        return p;
+    }
+    return nullptr;
 }
 unsigned char* get_identifier(){
     static unsigned char identifier[16];
@@ -101,13 +131,6 @@ void send_stun_msg(stun::message msg, const char* server_address, const char* se
         close(socketd);
         throw std::runtime_error("Could not send STUN request.");
     }
-    struct sockaddr_in localAddress;
-    socklen_t len = sizeof(localAddress);
-    getsockname(socketd, (struct sockaddr *) &localAddress, &len);
-    char ip[16];
-    bzero(&localAddress, sizeof(localAddress));
-    inet_ntop(AF_INET, &localAddress.sin_addr, ip, sizeof(ip));
-    std::cout << ip << std::endl;
 }
 STUNResult recv_stun_msg(int socketd){
     STUNResult res{};
@@ -211,21 +234,24 @@ STUNResult stun_test3(const char* server_address, const char* server_port, int s
 }
 int main(int argc, char **argv) {
     CLI::App app{"STUN Client implementation adapted from https://github.com/0xFireWolf/STUNExternalIP, by Domos."};
-    app.add_option("stun_server_ip", stun_server_ip, "The address of the STUN server.")->required();
-    app.add_option("stun_server_port", stun_server_port, "The port of the STUN server.")->required();
+    app.add_option("--stun_server_ip", stun_server_ip, "The address of the STUN server.")->default_val("stun.ekiga.net");
+    app.add_option("--stun_server_port", stun_server_port, "The port of the STUN server.")->default_val("3478");
     app.add_option("port", port, "The port that you want to punch through, and obtain the NAT translation of.")->required();
     try {
         app.parse(argc, argv);
     } catch (const CLI::ParseError &e) {
         return app.exit(e);
     }
+    const char* ip = get_local_ip();
     Json::Value root;
     int socketd = bind_socket(port.c_str());
+    // Perform STUN
     auto res1 = stun_test1(stun_server_ip.c_str(), stun_server_port.c_str(), socketd);
+    // Determine NAT type
     if(strlen(res1.ext_address) == 0){
         root["nat_type"] = "blocked";
     }
-    if(strcmp(res1.ext_address, local_ip) == 0 && strcmp(res1.ext_port, local_port) == 0){
+    if(strcmp(res1.ext_address, ip) == 0 && strcmp(res1.ext_port, port.c_str()) == 0){
         auto res2 = stun_test2(stun_server_ip.c_str(), stun_server_port.c_str(), socketd);
         // Check if response
         if(strlen(res2.ext_address) == 0){
