@@ -2,7 +2,7 @@
 Translates NAT and punches through a UDP port. Also determines NAT type.
 ## Example usage
 ```bash
-./stun 2020
+./stun-client 2020
 ```
 Where 2000 is the desired port you want to obtain a translation of. 
 Example output:
