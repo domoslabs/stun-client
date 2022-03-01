@@ -13,7 +13,7 @@ Example output:
         "nat_type" : "symmetric"
 }
 ```
-Which is your external IP and port.
+Which is your external IP and port. As well as the NAT type. If the NAT type is symmetric, then STUN will not work.
 ## Building
 First clone, remember submodules:
 ```bash
